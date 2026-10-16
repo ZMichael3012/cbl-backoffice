@@ -204,7 +204,7 @@ Security: token and secret never logged (access log carries only the request id 
 status); 401/403 responses carry no reason details; JWT algorithm pinning; deny by
 default RBAC; audit append-only in the database. Latency: audit page < 50 ms on the
 stand. Concurrency: inserts are independent; the reader is page-scoped. Coverage:
-unit+integration at least 80% (measured 94.7%). No new libraries beyond the platform
+unit+integration at least 80% (measured 94.8%). No new libraries beyond the platform
 set (`gin`, `golang-jwt/v5` - sanctioned by the root `AGENTS.md` section 2.1,
 `gorm`+pgx, goose via `storagex`, `zap`, `cbl-kit`); float is not used anywhere.
 
@@ -234,7 +234,7 @@ with the umbrella (committed on instruction).
 ## 10. Reviews
 
 Four independent passes (16.10.2026) and closure verification; the validation run after
-the fixes: `test/e2e/.runs/20261016t133751z/` PASS 26/26 (two earlier aborted harness
+the fixes: `test/e2e/.runs/20261016t133751z/` PASS 25/25 (two earlier aborted harness
 attempts are documented as superseded).
 
 | Role | Key findings | Closure |

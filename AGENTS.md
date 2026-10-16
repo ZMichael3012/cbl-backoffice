@@ -106,7 +106,7 @@ KI-backoffice-02.
 - Pipeline: SDD spec in `.specs/` -> contracts -> tests first -> code -> review by 4
   agents (no-context, architecture, with-context, security - blocking) -> AGENTS.md ->
   runs -> linters -> commit `CBL-<epic>.<number>: ...` (the spec in the same commit).
-- Unit+integration coverage is at least 80% (currently 94.7%); money scenarios only on
+- Unit+integration coverage is at least 80% (currently 94.8%); money scenarios only on
   real PostgreSQL and Kafka (testcontainers); local docker-compose e2e is mandatory.
 - Money is int64 in minor units plus decimals only; float is forbidden.
 - Every mutating action writes an audit record; `before`/`after` carry whitelisted
@@ -148,7 +148,7 @@ need (spec section 11).
 | CBL | Date | Status | Spec | Commit |
 | :-- | :-- | :-- | :-- | :-- |
 | CBL-16.14 | 2026-10-16 | done (English comments and documentation; e2e run instruction `test/e2e/E2E.md` added as a plan, scenarios arrive with CBL-12.x; no code changes) | `.specs/CBL-16.14-conventions.md` | this commit |
-| CBL-12.1 | 2026-10-16 | done, review closed (Admin API foundations: HS256 operator tokens (alg-pinned, exp required, key >= 32 bytes), the RBAC matrix and middleware (deny by default, 401/403 via cbl-kit kinds), the append-only `audit_log` (UPDATE/DELETE/TRUNCATE triggers, tx seam) with the keyset reader and `GET /admin/v1/audit-log`; unit+integration 94.7%, e2e `E2E_Backoffice_RBACAudit` PASS; contracts `admin.v1.yaml` 1.0.0 cf-3.5/cf-3.6) | `.specs/CBL-12.1-admin-api-rbac-audit.md` | this commit; cbl-protos 3b67ee2/86d3bf4 (cf-3.5/cf-3.6), cbl-kit 7144d74 |
+| CBL-12.1 | 2026-10-16 | done, review closed (Admin API foundations: HS256 operator tokens (alg-pinned, exp required, key >= 32 bytes), the RBAC matrix and middleware (deny by default, 401/403 via cbl-kit kinds), the append-only `audit_log` (UPDATE/DELETE/TRUNCATE triggers, tx seam) with the keyset reader and `GET /admin/v1/audit-log`; unit+integration 94.8%, e2e `E2E_Backoffice_RBACAudit` PASS; contracts `admin.v1.yaml` 1.0.0 cf-3.5/cf-3.6) | `.specs/CBL-12.1-admin-api-rbac-audit.md` | this commit; cbl-protos 3b67ee2/86d3bf4 (cf-3.5/cf-3.6), cbl-kit 7144d74 |
 
 ## 11. Runbook
 
