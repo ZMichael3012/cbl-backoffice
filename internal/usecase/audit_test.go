@@ -199,6 +199,19 @@ func (f *fakeWriter) Insert(_ context.Context, record domain.AuditRecord) error 
 	return nil
 }
 
+// ExistsForResource implements usecase.JournalWriter by scanning the captures.
+func (f *fakeWriter) ExistsForResource(_ context.Context, action, resourceType, resourceID string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	for _, record := range f.records {
+		if record.Action == action && record.ResourceType == resourceType && record.ResourceID == resourceID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func TestRecord(t *testing.T) {
 	t.Parallel()
 

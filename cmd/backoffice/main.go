@@ -16,6 +16,8 @@ import (
 
 	"github.com/cbl/cbl-backoffice/internal/auth"
 	"github.com/cbl/cbl-backoffice/internal/config"
+	"github.com/cbl/cbl-backoffice/internal/connectorclient"
+	"github.com/cbl/cbl-backoffice/internal/payoutclient"
 	"github.com/cbl/cbl-backoffice/internal/storage"
 	"github.com/cbl/cbl-backoffice/internal/transport"
 	"github.com/cbl/cbl-backoffice/internal/usecase"
@@ -68,12 +70,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	auditReader := usecase.NewAuditReader(storage.NewAuditStore(db))
+	auditStore := storage.NewAuditStore(db)
+	auditReader := usecase.NewAuditReader(auditStore)
+	auditWriter := usecase.NewAuditWriter(auditStore)
+
+	payoutClient, err := payoutclient.New(cfg.PayoutGRPCAddr, cfg.PayoutTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = payoutClient.Close() }()
+	connectorClient, err := connectorclient.New(cfg.ConnectorGRPCAddr, cfg.ConnectorTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = connectorClient.Close() }()
+	actions := usecase.NewAdminActions(payoutClient, connectorClient, auditWriter)
 
 	router := transport.NewRouter(transport.Options{
-		Log:    log,
-		Verify: verifier.Verify,
-		Audit:  auditReader,
+		Log:     log,
+		Verify:  verifier.Verify,
+		Audit:   auditReader,
+		Actions: actions,
 		Ping: func(pingCtx context.Context) error {
 			return storage.Ready(pingCtx, db)
 		},

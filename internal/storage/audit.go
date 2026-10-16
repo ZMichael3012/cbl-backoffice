@@ -62,6 +62,19 @@ func (s *AuditStore) Insert(ctx context.Context, record domain.AuditRecord) erro
 	return nil
 }
 
+// ExistsForResource reports whether a record for the action and resource exists
+// (the compensation check of CBL-12.2: a lost record after a successful action).
+func (s *AuditStore) ExistsForResource(ctx context.Context, action, resourceType, resourceID string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Table("audit_log").
+		Where("action = ? AND resource_type = ? AND resource_id = ?", action, resourceType, resourceID).
+		Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("storage: check audit record: %w", err)
+	}
+	return count > 0, nil
+}
+
 // List returns up to limit records after the keyset position, newest first.
 func (s *AuditStore) List(ctx context.Context, filter domain.AuditFilter, limit int, after *domain.AuditKey) ([]domain.AuditRecord, error) {
 	query := s.db.WithContext(ctx).Table("audit_log")

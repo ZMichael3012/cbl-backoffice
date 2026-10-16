@@ -16,6 +16,19 @@ services:
       timeout: 3s
       retries: 20
     networks: [cbl-net]
+  # stubs - the test PayoutService and ConnectorAdminService for the e2e
+  # scenarios of CBL-12.2: deterministic in-memory doubles of the real contract
+  # surfaces; never part of the production contour.
+  stubs:
+    profiles: ["app"]
+    build:
+      context: ../..
+      dockerfile: cbl-backoffice/test/e2e/.additionals/stubs/Dockerfile
+    environment:
+      STUB_PAYOUT_ADDR: ":9081"
+      STUB_CONNECTOR_ADDR: ":9082"
+      STUB_PAYOUT_REQUIRED: "2"
+    networks: [cbl-net]
   backoffice:
     profiles: ["app"]
     build:
@@ -30,11 +43,14 @@ services:
       # Dev stand only: the shared HS256 key for the mint utility of the e2e
       # scenario and local runs. Production secret distribution - KI-backoffice-02.
       ADMIN_JWT_SECRET: dev-admin-jwt-secret-change-me-please
+      PAYOUT_GRPC_ADDR: stubs:9081
+      CONNECTOR_GRPC_ADDR: stubs:9082
     ports:
       - "8020:8020"
       - "9220:9220"
     depends_on:
       postgres: { condition: service_healthy }
+      stubs: { condition: service_started }
     networks: [cbl-net]
 
 volumes:

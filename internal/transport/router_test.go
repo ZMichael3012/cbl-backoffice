@@ -52,6 +52,8 @@ func verifier(_ context.Context, token string) (domain.Operator, error) {
 		return domain.Operator{Subject: "op-aud", Roles: []domain.Role{domain.RoleAuditor}}, nil
 	case "payout":
 		return domain.Operator{Subject: "op-pay", Roles: []domain.Role{domain.RolePayoutOperator}}, nil
+	case "routing":
+		return domain.Operator{Subject: "op-route", Roles: []domain.Role{domain.RoleRoutingManager}}, nil
 	case "admin":
 		return domain.Operator{Subject: "op-adm", Roles: []domain.Role{domain.RoleAdmin}}, nil
 	default:

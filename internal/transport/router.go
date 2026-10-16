@@ -37,6 +37,9 @@ type Options struct {
 	Verify httpmw.Verifier
 	// Audit serves journal pages.
 	Audit *usecase.AuditReader
+	// Actions serves the mutating admin operations (CBL-12.2); when nil the
+	// business routes are not registered (12.1 mode).
+	Actions *usecase.AdminActions
 	// Ping reports database readiness for /readyz.
 	Ping func(ctx context.Context) error
 }
@@ -64,6 +67,14 @@ func NewRouter(opts Options) *gin.Engine {
 	admin := router.Group("/admin/v1")
 	admin.Use(httpmw.Authn(opts.Verify))
 	admin.GET("/audit-log", httpmw.Require(domain.PermissionAuditRead), auditListHandler(opts.Audit))
+	if opts.Actions != nil {
+		actions := NewActionsHandler(opts.Actions)
+		admin.POST("/payouts/:id/approve", httpmw.Require(domain.PermissionPayoutsApprove), actions.ApprovePayout)
+		admin.POST("/payouts/:id/reject", httpmw.Require(domain.PermissionPayoutsApprove), actions.RejectPayout)
+		admin.GET("/routing-rules", httpmw.Require(domain.PermissionRoutingRead), actions.GetRoutingRules)
+		admin.PUT("/routing-rules", httpmw.Require(domain.PermissionRoutingManage), actions.PutRoutingRules)
+		admin.POST("/providers/:id/disable", httpmw.Require(domain.PermissionProvidersDisable), actions.DisableProvider)
+	}
 
 	router.NoRoute(func(c *gin.Context) {
 		ginmw.AbortWithProblem(c, http.StatusNotFound, "not_found", "Not Found", "")

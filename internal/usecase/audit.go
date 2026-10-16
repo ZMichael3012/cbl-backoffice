@@ -37,6 +37,9 @@ type JournalStore interface {
 type JournalWriter interface {
 	// Insert stores one record.
 	Insert(ctx context.Context, record domain.AuditRecord) error
+	// ExistsForResource reports whether a record for the action and resource
+	// already exists (the compensation check of CBL-12.2).
+	ExistsForResource(ctx context.Context, action, resourceType, resourceID string) (bool, error)
 }
 
 // AuditReader serves pages of the operator action journal.
@@ -147,6 +150,17 @@ func (w *AuditWriter) Record(ctx context.Context, entry AuditEntry) error {
 			"audit journal is temporarily unavailable", err)
 	}
 	return nil
+}
+
+// ExistsForResource reports whether the journal already contains a record for
+// the action and resource (used by the CBL-12.2 compensation of a lost record).
+func (w *AuditWriter) ExistsForResource(ctx context.Context, action, resourceType, resourceID string) (bool, error) {
+	exists, err := w.store.ExistsForResource(ctx, action, resourceType, resourceID)
+	if err != nil {
+		return false, grpcmw.E(grpcmw.KindUnavailable, "service_unavailable",
+			"audit journal is temporarily unavailable", err)
+	}
+	return exists, nil
 }
 
 // marshalState serializes one state snapshot; nil stays absent (SQL NULL).

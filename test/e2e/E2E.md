@@ -4,20 +4,22 @@ Run instruction for the local e2e scenarios of the service. A run is performed b
 platform-independently: docker, a command shell and Go utilities from `.additionals/`.
 There are no PowerShell run scripts (customer decision of 16.10.2026, `CBL-002` section 7).
 
-Repository: `cbl-backoffice`. Stand: `deploy/docker-compose.yml` (postgres, backoffice in
-the `app` profile).
+Repository: `cbl-backoffice`. Stand: `deploy/docker-compose.yml` (postgres, stubs with
+the test PayoutService (:9081) and ConnectorAdminService (:9082), backoffice in the
+`app` profile).
 
 ## 1. Scenarios
 
 | Scenario | Checks | Contracts |
 | :-- | :-- | :-- |
 | `E2E_Backoffice_RBACAudit` | migrations, operator authN (missing/expired/wrong-secret tokens), RBAC (403 without `audit:read`, 200 for auditor/admin), problem+json with request_id, audit-log pagination and filters, append-only immutability against direct SQL | admin.v1.yaml 1.0.0 (`GET /admin/v1/audit-log`), PostgreSQL |
+| `E2E_Backoffice_AdminActions` | payout decisions through the stub PayoutService (two-operator approval, idempotent repeat, veto, `approval not required`, subject mismatch), routing get/put with the revision conflict, provider disable idempotence, the audit records of every action read through `/audit-log` | admin.v1.yaml 1.0.0, `PayoutService.ApprovePayout` (+`approved_by` cf-3.9), `ConnectorAdminService` (cf-3.7) |
 
 Minimum for a task run: the scenario affected by the task (the full set - before release
 runs). The write path of business actions (10.5/12.2) grows the scenario when those routes
 land; in 12.1 the writer is covered by integration tests and the scenario seeds rows with
-psql to exercise the read API. An idempotent-repeat check applies to mutating routes and
-is deferred to 12.2 together with the first mutating endpoint.
+psql to exercise the read API. The idempotent-repeat and audit checks of the mutating
+routes live in `E2E_Backoffice_AdminActions` (section 6).
 
 ## 2. Isolation and parallelism
 
@@ -50,6 +52,9 @@ Common utilities:
   `ADMIN_JWT_SECRET`; an expired token: `-ttl=-1m`);
 - HTTP: `curl.exe -s -D <headers file> -o <body file> -w "%{http_code}" -H "Authorization: Bearer <token>" http://localhost:8020/admin/v1/audit-log?...`
   (save headers when the scenario checks `WWW-Authenticate`/`X-Request-Id`);
+  request bodies always go through files: `--data-binary @<body file>` (shells mangle
+  inline JSON quotes; an inline body fails the strict decoder with
+  `request body is invalid`);
 - SQL: `docker compose -p <project> -f deploy/docker-compose.yml exec -T postgres psql -U cbl -d backoffice -c "<SQL>"`
   (for expected failures do not pass `ON_ERROR_STOP` and grep the error text).
 
@@ -96,7 +101,45 @@ usually within seconds after postgres. On a timeout, record the last actual valu
    - `SELECT count(*)` still 3.
 8. Checks go to `rbac-audit-checks.txt`; command outputs to `rbac-audit.log`.
 
-## 6. Mandatory run artifacts
+## 6. E2E_Backoffice_AdminActions
+
+1. Full order (sections 3-4) until `readyz` = 200 (the `app` profile also builds and
+   starts the stubs; their first image build compiles the neighboring modules).
+2. Tokens: `op-1`/`op-2`/`op-3` with `payout_operator`, `op-route` with
+   `routing_manager`, `op-adm` with `admin` (`.additionals/mint`, `-secret`).
+3. Payout decisions through the stub (`STUB_PAYOUT_REQUIRED=2`; ids starting with
+   `small-` report `approval not required`; the stub state is in memory and the stand
+   is clean):
+   - approve `po-1` by `op-1` -> 200 `status=requested`, `approved_by=[op-1]`;
+   - approve `po-1` by `op-2` -> 200 `status=approved`, `approved_by=[op-1,op-2]`;
+   - the repeat by `op-1` -> 200 (idempotent, the state stays `approved`);
+   - the vote by `op-3` after the decision -> 409 `conflict`;
+   - reject `po-r` by `op-1` with a reason -> 200 `status=rejected`;
+   - reject `po-r2` without a reason -> 422 `validation_failed`;
+   - approve `small-po-1` -> 409 `conflict` (approval not required);
+   - approve `po-2` with `operator_id` different from the token subject -> 403
+     `operator_mismatch`; the auditor token on the route -> 403 `permission_denied`.
+4. Routing through the stub:
+   - `GET /routing-rules` with `op-route` -> 200 `revision=0`, `items=[]`;
+   - `PUT` with revision 0 and one rule `{provider: mock, priority 0, weight 1,
+     enabled true}` -> 200 `revision=1`, one item;
+   - the repeated `PUT` with the stale revision 0 -> 409 `revision_conflict`;
+   - `GET` again -> `revision=1`, one item.
+5. Provider disable:
+   - `POST /providers/mock/disable` by `op-adm` -> 204 (the provider is known from
+     the rules);
+   - the repeat -> 204 (idempotent); `POST /providers/ghost/disable` -> 404
+     `provider_not_found`.
+6. Audit records: `GET /admin/v1/audit-log?limit=20` by `op-adm` -> the newest-first
+   actions `payout.approve` (three records: the votes of `op-1` and `op-2` and the
+   audited idempotent repeat - every successful decision call is an operator action),
+   `payout.reject` (with `after.approved_by` as an array), `routing.update`
+   (`after.revision=1`), `provider.disable`; the repeated provider disable stays 204
+   without a new record per the contract (a repeat whose record was lost is
+   compensated on the retry); `?action=payout.approve` -> 3 records.
+7. Checks go to `admin-actions-checks.txt`; command outputs to `admin-actions.log`.
+
+## 7. Mandatory run artifacts
 
 - `summary.md` (template `.additionals/summary.template.md`; PASS/FAIL verdict, steps,
   key values, artifact list, time);
@@ -110,13 +153,14 @@ usually within seconds after postgres. On a timeout, record the last actual valu
 - an aborted run keeps the artifacts collected so far and the note in `summary.md`
   naming the successor run.
 
-## 7. Auxiliary files (.additionals)
+## 8. Auxiliary files (.additionals)
 
 - `mint/` - the token minting utility (HS256, the shared dev secret);
+- `stubs/` - the test PayoutService and ConnectorAdminService (CBL-12.2);
 - `summary.template.md` - the `summary.md` template;
 - `inventory.md` - the list of auxiliary files and their purpose.
 
-## 8. Cleanup
+## 9. Cleanup
 
 `docker compose -p cbl-backoffice-e2e-<MARK> -f deploy/docker-compose.yml --profile app down -v`
 at the end; `.runs/` is not committed; a repeated run must start from a clean stand.
