@@ -1,4 +1,4 @@
-// main запускает HTTP-сервис backoffice платформы CBL.
+// main starts the backoffice HTTP service of the CBL platform.
 package main
 
 import (
@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// main поднимает HTTP-сервер с health-эндпоинтами и сервер метрик.
+// main starts the HTTP server with health endpoints and the metrics server.
 func main() {
 	log, err := zap.NewProduction()
 	if err != nil {
@@ -69,7 +69,7 @@ func main() {
 	log.Info("shutdown finished")
 }
 
-// metricsHandler отдает заглушку метрик до задачи 0.7.
+// metricsHandler serves the metrics stub until task 0.7.
 func metricsHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
@@ -79,7 +79,7 @@ func metricsHandler() http.Handler {
 	return mux
 }
 
-// getenv возвращает значение переменной окружения или значение по умолчанию.
+// getenv returns the environment variable value or the fallback value.
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

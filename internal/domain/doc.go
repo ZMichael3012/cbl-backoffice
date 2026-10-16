@@ -1,3 +1,3 @@
-// Пакет domain содержит доменные модели, инварианты и правила сервиса backoffice,
-// не зависящие от транспорта и хранилищ.
+// Package domain contains domain models, invariants and rules of the backoffice
+// service, independent of transport and storages.
 package domain
