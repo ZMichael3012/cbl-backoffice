@@ -5,6 +5,7 @@ There are no PowerShell run scripts here (convention `CBL-002` section 7).
 
 | File/directory | Purpose |
 | :-- | :-- |
+| `mint/` | The token minting utility (HS256 JWT, the shared dev secret) |
 | `summary.template.md` | The `summary.md` run report template |
 
 New auxiliary files are added here and recorded in this table.

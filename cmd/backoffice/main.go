@@ -1,4 +1,5 @@
-// main starts the backoffice HTTP service of the CBL platform.
+// main starts the back-office admin API of the CBL platform: migrations,
+// operator authentication, RBAC and the action audit journal (CBL-12.1).
 package main
 
 import (
@@ -11,52 +12,106 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+
+	"github.com/cbl/cbl-backoffice/internal/auth"
+	"github.com/cbl/cbl-backoffice/internal/config"
+	"github.com/cbl/cbl-backoffice/internal/storage"
+	"github.com/cbl/cbl-backoffice/internal/transport"
+	"github.com/cbl/cbl-backoffice/internal/usecase"
 )
 
-// main starts the HTTP server with health endpoints and the metrics server.
+// version is the service build version, replaced at image build time.
+var version = "dev"
+
+// main starts the service and exits the process with a non-zero code on error.
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, "fatal:", err)
+		os.Exit(1)
+	}
+}
+
+// run assembles configuration, storage and the HTTP surface, then serves
+// requests until a stop signal.
+func run() error {
 	log, err := zap.NewProduction()
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("logger: %w", err)
 	}
 	defer func() { _ = log.Sync() }()
 
-	httpAddr := getenv("HTTP_ADDR", ":8020")
-	metricsAddr := getenv("METRICS_ADDR", ":9220")
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	log.Info("service started", zap.String("service", "cbl-backoffice"), zap.String("version", version))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	router := gin.New()
-	router.Use(gin.Recovery())
-	router.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-	router.GET("/readyz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	db, err := storage.Open(cfg.PGDSN)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	if err := storage.Migrate(ctx, db, cfg.MigrationsDir); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+
+	verifier, err := auth.NewVerifier(cfg.JWTSecret)
+	if err != nil {
+		return err
+	}
+	auditReader := usecase.NewAuditReader(storage.NewAuditStore(db))
+
+	router := transport.NewRouter(transport.Options{
+		Log:    log,
+		Verify: verifier.Verify,
+		Audit:  auditReader,
+		Ping: func(pingCtx context.Context) error {
+			return storage.Ready(pingCtx, db)
+		},
 	})
 
-	httpSrv := &http.Server{Addr: httpAddr, Handler: router, ReadHeaderTimeout: 5 * time.Second}
-	metricsSrv := &http.Server{Addr: metricsAddr, Handler: metricsHandler(), ReadHeaderTimeout: 5 * time.Second}
+	httpSrv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	metricsSrv := &http.Server{Addr: cfg.MetricsAddr, Handler: metricsHandler(), ReadHeaderTimeout: 5 * time.Second}
 
+	serveErrors := make(chan error, 2)
 	go func() {
-		log.Info("http server started", zap.String("addr", httpAddr))
+		log.Info("http server started", zap.String("addr", cfg.HTTPAddr))
 		if serveErr := httpSrv.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.Error("http server failed", zap.Error(serveErr))
+			serveErrors <- fmt.Errorf("http server: %w", serveErr)
 			stop()
 		}
 	}()
 	go func() {
-		log.Info("metrics server started", zap.String("addr", metricsAddr))
+		log.Info("metrics server started", zap.String("addr", cfg.MetricsAddr))
 		if serveErr := metricsSrv.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.Error("metrics server failed", zap.Error(serveErr))
+			serveErrors <- fmt.Errorf("metrics server: %w", serveErr)
 			stop()
 		}
 	}()
 
-	<-ctx.Done()
+	var serveFailure error
+	select {
+	case <-ctx.Done():
+	case serveFailure = <-serveErrors:
+	}
 	log.Info("shutdown started")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -67,6 +122,7 @@ func main() {
 		log.Error("metrics shutdown failed", zap.Error(shutdownErr))
 	}
 	log.Info("shutdown finished")
+	return serveFailure
 }
 
 // metricsHandler serves the metrics stub until task 0.7.
@@ -77,12 +133,4 @@ func metricsHandler() http.Handler {
 		_, _ = fmt.Fprintln(w, "# metrics endpoint placeholder (task 0.7)")
 	})
 	return mux
-}
-
-// getenv returns the environment variable value or the fallback value.
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

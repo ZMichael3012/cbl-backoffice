@@ -19,11 +19,17 @@ services:
   backoffice:
     profiles: ["app"]
     build:
-      context: ..
+      # The context is the services/ directory: the builder needs ../cbl-kit.
+      context: ../..
+      dockerfile: cbl-backoffice/Dockerfile
     environment:
       HTTP_ADDR: ":8020"
       METRICS_ADDR: ":9220"
       PG_DSN: postgres://cbl:cbl@postgres:5432/backoffice?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+      # Dev stand only: the shared HS256 key for the mint utility of the e2e
+      # scenario and local runs. Production secret distribution - KI-backoffice-02.
+      ADMIN_JWT_SECRET: dev-admin-jwt-secret-change-me-please
     ports:
       - "8020:8020"
       - "9220:9220"
