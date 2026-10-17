@@ -121,9 +121,11 @@ KI-backoffice-02.
 
 ## 6. Development rules
 
-- Pipeline: SDD spec in `.specs/` -> contracts -> tests first -> code -> review by 4
-  agents (no-context, architecture, with-context, security - blocking) -> AGENTS.md ->
-  runs -> linters -> commit `CBL-<epic>.<number>: ...` (the spec in the same commit).
+- Pipeline (TDD-first, CBL-001): an SDD spec with the architecture sketch and the full test
+  plan (unit and integration matrices, e2e scenario descriptions) -> contracts -> red tests
+  with recorded evidence -> implementation -> 4-agent review on the staged diff (no-context,
+  architecture, with-context, security - blocking) -> AGENTS.md -> final runs (unit +
+  integration + local e2e) -> linters -> commit `CBL-<epic>.<number>: ...` (the spec in the same commit).
 - Unit+integration coverage is at least 80% (currently 85.0%); money scenarios only on
   real PostgreSQL and Kafka (testcontainers); local docker-compose e2e is mandatory.
 - Money is int64 in minor units plus decimals only; float is forbidden.
