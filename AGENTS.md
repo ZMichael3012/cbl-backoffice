@@ -114,7 +114,7 @@ make test              # go test ./...
 make test-integration  # integration (testcontainers: PostgreSQL)
 make cover             # merged unit+integration coverage (cover.out)
 make vet               # go vet ./... (+ integration e2e tags)
-make lint              # golangci-lint in Docker (services/ context for cbl-kit)
+make lint              # golangci-lint in Docker (repo context; modules from GitHub)
 make up                # stand: postgres, backoffice (app profile)
 make down              # stand + volume
 ```
@@ -208,6 +208,7 @@ need (spec section 11).
 | CBL-12.2 | 2026-10-16 | done, review closed (payout decisions via the PayoutService client (subject binding, 422 reject reason, 409/404/503 mapping); routing get/put with the revision conflict and provider disable through the ConnectorAdminService client; audit records of every action with the compensation of a lost disable record; strict JSON and size limits; stubs and the e2e scenario `E2E_Backoffice_AdminActions` PASS 24/24; unit+integration 85.0%) | `.specs/CBL-12.2-payout-routing-providers.md` | this commit; contracts `cbl-protos@cf-3.7..cf-3.10`, connector/payout commits |
 | CBL-17.15 (back-office increment) | 2026-10-20 | done (provider enable route: `POST /admin/v1/providers/{id}/enable` with the optional reason, the connector client call, one `provider.enable` audit record (compensated on a lost first record) and idempotent repeats; unit B1 - B7 and the PostgreSQL integration flow green (disable -> enable, four journal rows); the permission reuses `providers:disable`; spec `.specs/CBL-17.15-provider-enable.md`) | `.specs/CBL-17.15-provider-enable.md` | this commit |
 | CBL-12.3 | 2026-10-20 | done, review closed (reconciliation discrepancy handling: the `recon.alerts` kit-inbox consumer with the group `cbl-backoffice-recon`, retry topics and DLQ, the alert id = envelope event id dedupe, the enum mapping and the validation policy; the `discrepancies` table with the one-way open -> resolved constraint; the list route with the severity/merchant filters and the filter-bound keyset cursor; the resolve route with the operator binding, RBAC, 404/409 mapping and the atomic audit record; the stand env and the `E2E_Backoffice_Reconciliation` scenario 18/18; the global GE-5 back-office half 5/5 with the alert `01a154a7-72d7-7ea4-956f-953c681e5b64`; 4 review passes, findings closed; unit+integration coverage 86.8%, lint 0) | `.specs/CBL-12.3-discrepancy-handling.md` | this commit |
+| CBL-0.9 | 2026-10-20 | done (cbl-kit and cbl-protos are pinned remote modules fetched from the GitHub origin; no local replace directives; Docker builds from the repository root; the lint container fetches the modules via GOPRIVATE and the git insteadOf rewrite) | `../../.specs/CBL-0.9-remote-modules.md` (umbrella) | this commit |
 
 ## 11. Runbook
 
@@ -283,5 +284,5 @@ Operational:
    stops the service before the servers start.
 2. Rotating the dev secret: update `ADMIN_JWT_SECRET` in compose (and the umbrella
    stand), restart the service and re-mint tokens; production rotation - KI-backoffice-02.
-3. The build context of the image is the services directory (the neighboring `cbl-kit`
-   module); a plain `docker build .` from the repository root fails by design.
+3. The image builds from the repository root (`docker build .`); the cbl-kit and
+   cbl-protos modules are fetched from the GitHub origin (CBL-0.9).

@@ -22,8 +22,8 @@ services:
   stubs:
     profiles: ["app"]
     build:
-      context: ../..
-      dockerfile: cbl-backoffice/test/e2e/.additionals/stubs/Dockerfile
+      context: ..
+      dockerfile: test/e2e/.additionals/stubs/Dockerfile
     environment:
       STUB_PAYOUT_ADDR: ":9081"
       STUB_CONNECTOR_ADDR: ":9082"
@@ -32,9 +32,9 @@ services:
   backoffice:
     profiles: ["app"]
     build:
-      # The context is the services/ directory: the builder needs ../cbl-kit.
-      context: ../..
-      dockerfile: cbl-backoffice/Dockerfile
+      # The context is the repository root (CBL-0.9).
+      context: ..
+      dockerfile: Dockerfile
     environment:
       HTTP_ADDR: ":8020"
       METRICS_ADDR: ":9220"

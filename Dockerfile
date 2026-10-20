@@ -1,19 +1,18 @@
+# Build context: the repository root (CBL-0.9). The cbl-kit and cbl-protos
+# modules are fetched from the GitHub origin; no sibling checkouts are needed.
 FROM golang:1.26-alpine AS build
+RUN apk add --no-cache git
+RUN git config --global url."https://github.com/ZMichael3012/".insteadOf "https://github.com/cbl/"
+ENV GOPRIVATE=github.com/cbl/*
 WORKDIR /src
-# The context is the services/ directory: the replace dependencies ../cbl-kit and ../cbl-protos need the neighboring modules.
-COPY cbl-kit/go.mod cbl-kit/go.sum ./cbl-kit/
-COPY cbl-protos/go.mod cbl-protos/go.sum ./cbl-protos/
-COPY cbl-backoffice/go.mod cbl-backoffice/go.sum ./cbl-backoffice/
-RUN cd cbl-backoffice && go mod download
-COPY cbl-kit ./cbl-kit
-COPY cbl-protos ./cbl-protos
-COPY cbl-backoffice ./cbl-backoffice
-RUN cd cbl-backoffice && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=docker" -o /out/backoffice ./cmd/backoffice
-
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=docker" -o /out/backoffice ./cmd/backoffice
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/backoffice /app/backoffice
 # Migrations are applied by the service at startup (MIGRATIONS_DIR).
-COPY --from=build /src/cbl-backoffice/migrations /app/migrations
+COPY --from=build /src/migrations /app/migrations
 EXPOSE 8020 9220
 ENTRYPOINT ["/app/backoffice"]

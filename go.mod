@@ -3,6 +3,8 @@ module github.com/cbl/cbl-backoffice
 go 1.26.0
 
 require (
+	github.com/cbl/cbl-kit v0.0.0-20261020024025-deb4e66f1a90
+	github.com/cbl/cbl-protos v0.0.0-20261020024006-5f606b124c94
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
@@ -79,8 +81,6 @@ require (
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
-	github.com/cbl/cbl-kit v0.0.0-00010101000000-000000000000
-	github.com/cbl/cbl-protos v0.0.0-00010101000000-000000000000
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
@@ -107,7 +107,3 @@ require (
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/cbl/cbl-kit => ../cbl-kit
-
-replace github.com/cbl/cbl-protos => ../cbl-protos
