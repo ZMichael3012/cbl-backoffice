@@ -42,10 +42,13 @@ type fakeRoutingAdmin struct {
 	putErr       error
 	already      bool
 	disableErr   error
+	enableErr    error
 	gotPutRev    int64
 	gotDisable   string
+	gotEnable    string
 	gotReason    string
 	disableCalls int
+	enableCalls  int
 	putCalls     int
 }
 
@@ -74,6 +77,16 @@ func (f *fakeRoutingAdmin) DisableProvider(_ context.Context, provider, reason s
 	f.gotReason = reason
 	if f.disableErr != nil {
 		return false, f.disableErr
+	}
+	return f.already, nil
+}
+
+// EnableProvider implements usecase.RoutingAdmin.
+func (f *fakeRoutingAdmin) EnableProvider(_ context.Context, provider string) (bool, error) {
+	f.enableCalls++
+	f.gotEnable = provider
+	if f.enableErr != nil {
+		return false, f.enableErr
 	}
 	return f.already, nil
 }
@@ -221,6 +234,52 @@ func TestDisableProviderAuditsOnce(t *testing.T) {
 	routing = &fakeRoutingAdmin{disableErr: errors.New("connector down")}
 	actions, journal = newActions(&fakePayoutDecider{}, routing)
 	_, err = actions.DisableProvider(context.Background(), "op-1", "req-3", "mock", "")
+	require.Error(t, err)
+	assert.Empty(t, journal.records)
+}
+
+func TestEnableProviderAuditsOnce(t *testing.T) {
+	t.Parallel()
+
+	routing := &fakeRoutingAdmin{}
+	actions, journal := newActions(&fakePayoutDecider{}, routing)
+
+	already, err := actions.EnableProvider(context.Background(), "op-1", "req-1", "mock", "restored")
+	require.NoError(t, err)
+	assert.False(t, already)
+	require.Len(t, journal.records, 1)
+	record := journal.records[0]
+	assert.Equal(t, "provider.enable", record.Action)
+	assert.Equal(t, "provider", record.ResourceType)
+	assert.Equal(t, "mock", record.ResourceID)
+	var after struct {
+		Enabled bool   `json:"enabled"`
+		Reason  string `json:"reason"`
+	}
+	require.NoError(t, json.Unmarshal(record.After, &after))
+	assert.True(t, after.Enabled)
+	assert.Equal(t, "restored", after.Reason)
+
+	// The repeated enable is idempotent: the record exists, nothing is added.
+	routing.already = true
+	already, err = actions.EnableProvider(context.Background(), "op-1", "req-2", "mock", "")
+	require.NoError(t, err)
+	assert.True(t, already)
+	assert.Len(t, journal.records, 1)
+
+	// A repeat whose first record was lost is compensated.
+	compensated := &fakeWriter{}
+	actions = usecase.NewAdminActions(&fakePayoutDecider{}, &fakeRoutingAdmin{already: true},
+		usecase.NewAuditWriter(compensated))
+	already, err = actions.EnableProvider(context.Background(), "op-1", "req-3", "mock", "restored")
+	require.NoError(t, err)
+	assert.True(t, already)
+	require.Len(t, compensated.records, 1, "the applied enable is finally journaled")
+
+	// Errors pass through without a record.
+	routing = &fakeRoutingAdmin{enableErr: errors.New("connector down")}
+	actions, journal = newActions(&fakePayoutDecider{}, routing)
+	_, err = actions.EnableProvider(context.Background(), "op-1", "req-3", "mock", "")
 	require.Error(t, err)
 	assert.Empty(t, journal.records)
 }

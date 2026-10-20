@@ -16,7 +16,7 @@ RBAC (role-permission matrix in code, deny by default); the append-only `audit_l
 (migration with UPDATE/DELETE/TRUNCATE triggers, writer with the `ExistsForResource`
 compensation, keyset reader) and the `GET /admin/v1/audit-log` read route; the business
 routes of CBL-12.2 (payout approve/reject via the PayoutService client, routing
-get/put and provider disable via the ConnectorAdminService client, all audited); the
+get/put and provider enable/disable via the ConnectorAdminService client, all audited); the
 `recon.alerts` inbox consumer and the reconciliation operator routes of CBL-12.3
 (discrepancy listing and manual resolution with the atomic audit; `manual_adjustment`
 is an attested operator decision, no ledger posting); service foundation (`/healthz`,
@@ -27,8 +27,8 @@ Out of scope: the operator UI (12.4); the discrepancy report/dashboard (9.4); a
 merchant-facing discrepancy notification type (deferred by the CF-3 freeze); an
 automated ledger correction for `manual_adjustment` (KI-backoffice-06); token
 issuance, an operator directory, rotation and revocation (dev stand: the mint utility
-and the shared secret; production: identity provider/ops - KI-backoffice-02); provider
-enable and disabled-set retention (KI-backoffice-05, KI-connector-09); rate limiting
+and the shared secret; production: identity provider/ops - KI-backoffice-02); the
+disabled-set retention (KI-backoffice-05, KI-connector-09); rate limiting
 and mTLS (0.6); real metrics and dashboards (0.7/14.4); Redis (not used until 14.x).
 
 ## 2. Contracts
@@ -39,7 +39,8 @@ and mTLS (0.6); real metrics and dashboards (0.7/14.4); Redis (not used until 14
   (the body operator must match the token subject; a missing reject reason is 422);
   `GET/PUT /admin/v1/routing-rules` (revision-based optimistic concurrency, 409
   `revision_conflict`; the RoutingRule shape matches the connector source of truth);
-  `POST /admin/v1/providers/{id}/disable` (idempotent 204). Errors: 400
+  `POST /admin/v1/providers/{id}/disable|enable` (idempotent 204, the enable removes the
+  manual disable and is audited once). Errors: 400
   `validation_failed`, 401 `unauthenticated`, 403 `permission_denied`/`operator_mismatch`,
   404 `payout_not_found`/`provider_not_found`, 409 conflict, 503 `service_unavailable`
   + `Retry-After`. The reconciliation routes (CBL-12.3): `GET
@@ -65,7 +66,7 @@ cmd/backoffice/          # main: config, migrations, servers (API :8020, metrics
 internal/config/         # env parsing and validation (fail-fast)
 internal/auth/           # HS256 operator token verification (MinSecretLength = 32)
 internal/payoutclient/   # PayoutService gRPC client (decisions; code mapping)
-internal/connectorclient/# ConnectorAdminService gRPC client (routing, disable)
+internal/connectorclient/# ConnectorAdminService gRPC client (routing, enable/disable)
 internal/consumer/       # the recon.alerts inbox handler (validation and mapping)
 internal/domain/         # roles, the RBAC matrix, audit types, routing rule, payout view, discrepancies
 internal/usecase/        # audit reader/writer, the 12.2 admin actions (clients + audit), the 12.3 discrepancy service
@@ -101,6 +102,8 @@ RBAC matrix (single source: `internal/domain/identity.go`; deny by default):
 | `reconciliation:read` | x | | | x | | x |
 | `reconciliation:resolve` | x | | | x | | |
 | `providers:disable` | x | | | | x | |
+
+The enable route reuses `providers:disable`: both actions manage provider availability.
 | `audit:read` | x | | | | | x |
 
 ## 4. Commands
@@ -203,6 +206,7 @@ need (spec section 11).
 | CBL-16.14 | 2026-10-16 | done (English comments and documentation; e2e run instruction `test/e2e/E2E.md` added as a plan, scenarios arrive with CBL-12.x; no code changes) | `.specs/CBL-16.14-conventions.md` | this commit |
 | CBL-12.1 | 2026-10-16 | done, review closed (Admin API foundations: HS256 operator tokens (alg-pinned, exp required, key >= 32 bytes), the RBAC matrix and middleware (deny by default, 401/403 via cbl-kit kinds), the append-only `audit_log` (UPDATE/DELETE/TRUNCATE triggers, tx seam) with the keyset reader and `GET /admin/v1/audit-log`; unit+integration 94.8%, e2e `E2E_Backoffice_RBACAudit` PASS; contracts `admin.v1.yaml` 1.0.0 cf-3.5/cf-3.6) | `.specs/CBL-12.1-admin-api-rbac-audit.md` | this commit; cbl-protos 3b67ee2/86d3bf4 (cf-3.5/cf-3.6), cbl-kit 7144d74 |
 | CBL-12.2 | 2026-10-16 | done, review closed (payout decisions via the PayoutService client (subject binding, 422 reject reason, 409/404/503 mapping); routing get/put with the revision conflict and provider disable through the ConnectorAdminService client; audit records of every action with the compensation of a lost disable record; strict JSON and size limits; stubs and the e2e scenario `E2E_Backoffice_AdminActions` PASS 24/24; unit+integration 85.0%) | `.specs/CBL-12.2-payout-routing-providers.md` | this commit; contracts `cbl-protos@cf-3.7..cf-3.10`, connector/payout commits |
+| CBL-17.15 (back-office increment) | 2026-10-20 | done (provider enable route: `POST /admin/v1/providers/{id}/enable` with the optional reason, the connector client call, one `provider.enable` audit record (compensated on a lost first record) and idempotent repeats; unit B1 - B7 and the PostgreSQL integration flow green (disable -> enable, four journal rows); the permission reuses `providers:disable`; spec `.specs/CBL-17.15-provider-enable.md`) | `.specs/CBL-17.15-provider-enable.md` | this commit |
 | CBL-12.3 | 2026-10-20 | done, review closed (reconciliation discrepancy handling: the `recon.alerts` kit-inbox consumer with the group `cbl-backoffice-recon`, retry topics and DLQ, the alert id = envelope event id dedupe, the enum mapping and the validation policy; the `discrepancies` table with the one-way open -> resolved constraint; the list route with the severity/merchant filters and the filter-bound keyset cursor; the resolve route with the operator binding, RBAC, 404/409 mapping and the atomic audit record; the stand env and the `E2E_Backoffice_Reconciliation` scenario 18/18; the global GE-5 back-office half 5/5 with the alert `01a154a7-72d7-7ea4-956f-953c681e5b64`; 4 review passes, findings closed; unit+integration coverage 86.8%, lint 0) | `.specs/CBL-12.3-discrepancy-handling.md` | this commit |
 
 ## 11. Runbook

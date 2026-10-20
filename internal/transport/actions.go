@@ -44,8 +44,9 @@ type payoutAdminJSON struct {
 	ApprovedBy []string `json:"approved_by"`
 }
 
-// disableProviderRequest is the optional body of the disable route.
-type disableProviderRequest struct {
+// providerReasonRequest is the optional body of the provider enable/disable
+// routes.
+type providerReasonRequest struct {
 	Reason string `json:"reason"`
 }
 
@@ -159,7 +160,7 @@ func (h *ActionsHandler) PutRoutingRules(c *gin.Context) {
 // DisableProvider handles POST /admin/v1/providers/{id}/disable.
 func (h *ActionsHandler) DisableProvider(c *gin.Context) {
 	operator := httpmw.OperatorFrom(c)
-	var body disableProviderRequest
+	var body providerReasonRequest
 	if c.Request.ContentLength != 0 {
 		if !bindStrict(c, &body) {
 			return
@@ -171,6 +172,28 @@ func (h *ActionsHandler) DisableProvider(c *gin.Context) {
 		return
 	}
 	if _, err := h.actions.DisableProvider(c.Request.Context(), operator.Subject, ginmw.RequestIDFrom(c),
+		c.Param("id"), reason); err != nil {
+		abortActionError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// EnableProvider handles POST /admin/v1/providers/{id}/enable.
+func (h *ActionsHandler) EnableProvider(c *gin.Context) {
+	operator := httpmw.OperatorFrom(c)
+	var body providerReasonRequest
+	if c.Request.ContentLength != 0 {
+		if !bindStrict(c, &body) {
+			return
+		}
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if err := validateReason(reason); err != nil {
+		AbortValidation(c, err.Error())
+		return
+	}
+	if _, err := h.actions.EnableProvider(c.Request.Context(), operator.Subject, ginmw.RequestIDFrom(c),
 		c.Param("id"), reason); err != nil {
 		abortActionError(c, err)
 		return

@@ -23,6 +23,8 @@ type RoutingAdmin interface {
 	PutRules(ctx context.Context, revision int64, rules []domain.RoutingRule) (int64, []domain.RoutingRule, error)
 	// DisableProvider disables a provider; already reports a repeat.
 	DisableProvider(ctx context.Context, provider, reason string) (bool, error)
+	// EnableProvider enables a disabled provider; already reports a repeat.
+	EnableProvider(ctx context.Context, provider string) (bool, error)
 }
 
 // payoutAuditDTO is the whitelisted snapshot of a payout decision (CBL-12.2
@@ -53,9 +55,10 @@ type routingAuditDTO struct {
 	Items    []routingRuleAudit `json:"items"`
 }
 
-// providerAuditDTO is the whitelisted snapshot of a provider disable.
+// providerAuditDTO is the whitelisted snapshot of a provider availability change.
 type providerAuditDTO struct {
 	Disabled bool   `json:"disabled"`
+	Enabled  bool   `json:"enabled"`
 	Reason   string `json:"reason"`
 }
 
@@ -201,6 +204,39 @@ func (a *AdminActions) DisableProvider(ctx context.Context, operatorID, requestI
 	}
 	if err := a.audit.Record(ctx, entry); err != nil {
 		return false, fmt.Errorf("admin actions: audit provider disable: %w", err)
+	}
+	return already, nil
+}
+
+// EnableProvider removes a provider disable and audits the first enable; a
+// repeated enable is idempotent and leaves the journal untouched. A repeat
+// whose first record was lost (the audit write failed after a successful
+// action) is compensated, so the applied action is never unjournaled (mirror
+// of the disable rule, CBL-17.15).
+func (a *AdminActions) EnableProvider(ctx context.Context, operatorID, requestID, provider, reason string) (bool, error) {
+	already, err := a.routing.EnableProvider(ctx, provider)
+	if err != nil {
+		return false, err
+	}
+	if already {
+		exists, checkErr := a.audit.ExistsForResource(ctx, "provider.enable", "provider", provider)
+		if checkErr != nil {
+			return false, fmt.Errorf("admin actions: check audit journal: %w", checkErr)
+		}
+		if exists {
+			return true, nil
+		}
+	}
+	entry := AuditEntry{
+		OperatorID:   operatorID,
+		RequestID:    requestID,
+		Action:       "provider.enable",
+		ResourceType: "provider",
+		ResourceID:   provider,
+		After:        providerAuditDTO{Enabled: true, Reason: reason},
+	}
+	if err := a.audit.Record(ctx, entry); err != nil {
+		return false, fmt.Errorf("admin actions: audit provider enable: %w", err)
 	}
 	return already, nil
 }

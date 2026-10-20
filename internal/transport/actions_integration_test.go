@@ -65,20 +65,28 @@ func TestAdminActionsFlowOverDatabase(t *testing.T) {
 	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/disable", admin, "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// The journal holds exactly three records (the repeat is not audit-recorded
-	// and the audit-log read itself is not an action) and serves them through
-	// the 12.1 read API.
+	// Provider enable: 204 once, then the idempotent repeat.
+	routing.already = false
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", admin, `{"reason":"restored"}`)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	routing.already = true
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", admin, "")
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// The journal holds exactly four records: the repeats are not audit-recorded
+	// and the audit-log read itself is not an action.
 	rows, err := store.List(ctx, domain.AuditFilter{}, 10, nil)
 	require.NoError(t, err)
-	require.Len(t, rows, 3, "approve, routing.update and the first disable only")
-	assert.Equal(t, "provider.disable", rows[0].Action)
-	assert.Equal(t, "routing.update", rows[1].Action)
-	assert.Equal(t, "payout.approve", rows[2].Action, "newest first")
+	require.Len(t, rows, 4, "approve, routing.update, the first disable and the first enable only")
+	assert.Equal(t, "provider.enable", rows[0].Action)
+	assert.Equal(t, "provider.disable", rows[1].Action)
+	assert.Equal(t, "routing.update", rows[2].Action)
+	assert.Equal(t, "payout.approve", rows[3].Action, "newest first")
 
 	var after struct {
 		Revision int64 `json:"revision"`
 	}
-	require.NoError(t, json.Unmarshal(rows[1].After, &after))
+	require.NoError(t, json.Unmarshal(rows[2].After, &after))
 	assert.EqualValues(t, 2, after.Revision)
 
 	rec = doAction(router, http.MethodGet, "/admin/v1/audit-log?limit=10", admin, "")
@@ -89,5 +97,5 @@ func TestAdminActionsFlowOverDatabase(t *testing.T) {
 		} `json:"items"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
-	assert.Len(t, page.Items, 3)
+	assert.Len(t, page.Items, 4)
 }

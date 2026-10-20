@@ -92,6 +92,7 @@ func NewRouter(opts Options) *gin.Engine {
 		admin.GET("/routing-rules", httpmw.Require(domain.PermissionRoutingRead), actions.GetRoutingRules)
 		admin.PUT("/routing-rules", httpmw.Require(domain.PermissionRoutingManage), actions.PutRoutingRules)
 		admin.POST("/providers/:id/disable", httpmw.Require(domain.PermissionProvidersDisable), actions.DisableProvider)
+		admin.POST("/providers/:id/enable", httpmw.Require(domain.PermissionProvidersDisable), actions.EnableProvider)
 	}
 	if opts.Discrepancies != nil {
 		admin.GET("/reconciliation/discrepancies", httpmw.Require(domain.PermissionReconciliationRead),

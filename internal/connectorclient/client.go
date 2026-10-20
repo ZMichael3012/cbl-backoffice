@@ -82,6 +82,17 @@ func (c *Client) DisableProvider(ctx context.Context, provider, reason string) (
 	return response.GetAlreadyDisabled(), nil
 }
 
+// EnableProvider removes a manual disable; already reports a repeat.
+func (c *Client) EnableProvider(ctx context.Context, provider string) (bool, error) {
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	response, err := c.api.EnableProvider(callCtx, &connectorv1.EnableProviderRequest{Provider: provider})
+	if err != nil {
+		return false, mapError(err)
+	}
+	return response.GetAlreadyEnabled(), nil
+}
+
 // mapError converts a transport error into the platform error kinds.
 func mapError(err error) error {
 	st, ok := status.FromError(err)

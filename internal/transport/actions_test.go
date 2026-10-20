@@ -52,6 +52,7 @@ type actionRouting struct {
 	putErr      error
 	already     bool
 	disableErr  error
+	enableErr   error
 }
 
 // GetRules implements usecase.RoutingAdmin.
@@ -71,6 +72,14 @@ func (f *actionRouting) PutRules(_ context.Context, _ int64, _ []domain.RoutingR
 func (f *actionRouting) DisableProvider(context.Context, string, string) (bool, error) {
 	if f.disableErr != nil {
 		return false, f.disableErr
+	}
+	return f.already, nil
+}
+
+// EnableProvider implements usecase.RoutingAdmin.
+func (f *actionRouting) EnableProvider(context.Context, string) (bool, error) {
+	if f.enableErr != nil {
+		return false, f.enableErr
 	}
 	return f.already, nil
 }
@@ -329,6 +338,49 @@ func TestDisableProviderEndpoint(t *testing.T) {
 	// A control character in the reason is 400.
 	router, _ = actionsRouter(&actionPayout{}, &actionRouting{}, &actionJournal{})
 	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/disable", "admin", `{"reason":"bad\u0007reason"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestEnableProviderEndpoint(t *testing.T) {
+	t.Parallel()
+
+	routing := &actionRouting{}
+	journal := &actionJournal{}
+	router, _ := actionsRouter(&actionPayout{}, routing, journal)
+
+	// RBAC: the routing_manager cannot enable providers.
+	rec := doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", "routing", "")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	// The first enable is 204 with one record.
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", "admin", `{"reason":"restored"}`)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Len(t, journal.records, 1)
+	assert.Equal(t, "provider.enable", journal.records[0].Action)
+
+	// The repeated enable is 204 without a new record.
+	routing.already = true
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", "admin", "")
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Len(t, journal.records, 1)
+
+	// A repeat whose record was lost is compensated.
+	compensated := &actionJournal{}
+	router, _ = actionsRouter(&actionPayout{}, &actionRouting{already: true}, compensated)
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", "admin", "")
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Len(t, compensated.records, 1)
+	assert.Equal(t, "provider.enable", compensated.records[0].Action)
+
+	// An unknown provider is 404.
+	unknown := &actionRouting{enableErr: grpcmw.E(grpcmw.KindNotFound, "provider_not_found", "provider not found", nil)}
+	router, _ = actionsRouter(&actionPayout{}, unknown, &actionJournal{})
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/ghost/enable", "admin", "")
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	// A control character in the reason is 400.
+	router, _ = actionsRouter(&actionPayout{}, &actionRouting{}, &actionJournal{})
+	rec = doAction(router, http.MethodPost, "/admin/v1/providers/mock/enable", "admin", `{"reason":"bad\u0007reason"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
