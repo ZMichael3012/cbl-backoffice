@@ -13,10 +13,16 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
+
+	"github.com/cbl/cbl-kit/inbox"
+	"github.com/cbl/cbl-kit/inbox/kafkaconsumer"
+	"github.com/cbl/cbl-kit/outbox/kafkapub"
 
 	"github.com/cbl/cbl-backoffice/internal/auth"
 	"github.com/cbl/cbl-backoffice/internal/config"
 	"github.com/cbl/cbl-backoffice/internal/connectorclient"
+	"github.com/cbl/cbl-backoffice/internal/consumer"
 	"github.com/cbl/cbl-backoffice/internal/payoutclient"
 	"github.com/cbl/cbl-backoffice/internal/storage"
 	"github.com/cbl/cbl-backoffice/internal/transport"
@@ -73,6 +79,8 @@ func run() error {
 	auditStore := storage.NewAuditStore(db)
 	auditReader := usecase.NewAuditReader(auditStore)
 	auditWriter := usecase.NewAuditWriter(auditStore)
+	discrepancyStore := storage.NewDiscrepancyStore(db)
+	discrepancies := usecase.NewDiscrepancyService(discrepancyStore, auditWriter)
 
 	payoutClient, err := payoutclient.New(cfg.PayoutGRPCAddr, cfg.PayoutTimeout)
 	if err != nil {
@@ -86,11 +94,18 @@ func run() error {
 	defer func() { _ = connectorClient.Close() }()
 	actions := usecase.NewAdminActions(payoutClient, connectorClient, auditWriter)
 
+	closeConsumer, err := startReconConsumer(ctx, log, db, discrepancyStore, cfg)
+	if err != nil {
+		return err
+	}
+	defer closeConsumer()
+
 	router := transport.NewRouter(transport.Options{
-		Log:     log,
-		Verify:  verifier.Verify,
-		Audit:   auditReader,
-		Actions: actions,
+		Log:           log,
+		Verify:        verifier.Verify,
+		Audit:         auditReader,
+		Actions:       actions,
+		Discrepancies: discrepancies,
 		Ping: func(pingCtx context.Context) error {
 			return storage.Ready(pingCtx, db)
 		},
@@ -150,4 +165,44 @@ func metricsHandler() http.Handler {
 		_, _ = fmt.Fprintln(w, "# metrics endpoint placeholder (task 0.7)")
 	})
 	return mux
+}
+
+// startReconConsumer wires the recon.alerts inbox consumer (CBL-12.3); an
+// empty KAFKA_BROKERS disables the consumer with a warning.
+func startReconConsumer(ctx context.Context, log *zap.Logger, db *gorm.DB, store *storage.DiscrepancyStore, cfg config.Config) (func(), error) {
+	if len(cfg.KafkaBrokers) == 0 {
+		log.Warn("kafka is not configured: the recon.alerts consumer is disabled")
+		return func() {}, nil
+	}
+	publisher, err := kafkapub.New(cfg.KafkaBrokers)
+	if err != nil {
+		return nil, fmt.Errorf("kafka publisher: %w", err)
+	}
+	handler := consumer.NewReconHandler(store, log)
+	processor := inbox.NewProcessor(cfg.ReconGroup, db, inbox.NewGuard(), handler,
+		publisher, inbox.NewRouter("recon.alerts", 3), log)
+	runner, err := kafkaconsumer.New(cfg.KafkaBrokers, cfg.ReconGroup, topicWithRetries("recon.alerts"), processor, log)
+	if err != nil {
+		publisher.Close()
+		return nil, fmt.Errorf("recon consumer: %w", err)
+	}
+	go func() {
+		if runErr := runner.Run(ctx); runErr != nil && !errors.Is(runErr, context.Canceled) {
+			log.Error("recon consumer stopped", zap.Error(runErr))
+		}
+	}()
+	return func() {
+		runner.Close()
+		publisher.Close()
+	}, nil
+}
+
+// topicWithRetries returns the topic and its inbox retry topics.
+func topicWithRetries(main string) []string {
+	return []string{
+		main,
+		main + inbox.RetrySuffix5s,
+		main + inbox.RetrySuffix1m,
+		main + inbox.RetrySuffix10m,
+	}
 }

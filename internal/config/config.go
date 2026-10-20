@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cbl/cbl-backoffice/internal/auth"
@@ -30,6 +31,11 @@ type Config struct {
 	PayoutTimeout time.Duration
 	// ConnectorTimeout bounds one connector admin call.
 	ConnectorTimeout time.Duration
+	// KafkaBrokers are the bootstrap brokers of the recon.alerts consumer;
+	// empty disables the consumer (the reads stay available).
+	KafkaBrokers []string
+	// ReconGroup is the consumer group of the reconciliation alerts.
+	ReconGroup string
 }
 
 // Load reads and validates the configuration from getenv.
@@ -42,6 +48,8 @@ func Load(getenv func(string) string) (Config, error) {
 		JWTSecret:         value(getenv, "ADMIN_JWT_SECRET", ""),
 		PayoutGRPCAddr:    value(getenv, "PAYOUT_GRPC_ADDR", ""),
 		ConnectorGRPCAddr: value(getenv, "CONNECTOR_GRPC_ADDR", ""),
+		KafkaBrokers:      splitCSV(getenv("KAFKA_BROKERS")),
+		ReconGroup:        value(getenv, "BACKOFFICE_RECON_GROUP", "cbl-backoffice-recon"),
 	}
 	if cfg.PGDSN == "" {
 		return Config{}, errors.New("config: PG_DSN is required")
@@ -87,4 +95,16 @@ func value(getenv func(string) string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// splitCSV splits a comma-separated list skipping empty elements.
+func splitCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

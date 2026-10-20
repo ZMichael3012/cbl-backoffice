@@ -86,3 +86,19 @@ func TestLoadFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestKafkaSettings(t *testing.T) {
+	t.Parallel()
+
+	vars := baseVars()
+	vars["KAFKA_BROKERS"] = " kafka-1:9092, ,kafka-2:9092 "
+	cfg, err := config.Load(env(vars))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"kafka-1:9092", "kafka-2:9092"}, cfg.KafkaBrokers)
+	assert.Equal(t, "cbl-backoffice-recon", cfg.ReconGroup)
+
+	vars["BACKOFFICE_RECON_GROUP"] = "custom-recon"
+	cfg, err = config.Load(env(vars))
+	require.NoError(t, err)
+	assert.Equal(t, "custom-recon", cfg.ReconGroup)
+}

@@ -29,6 +29,21 @@ const auditTimeFormat = "2006-01-02T15:04:05.000Z07:00"
 // maxFilterValueLen bounds the exact-match filter inputs.
 const maxFilterValueLen = 256
 
+// maxPageLimit bounds the page size of the list routes.
+const maxPageLimit = 100
+
+// parseLimitValue parses the optional page size (1..100, 0 means the default).
+func parseLimitValue(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 1 || parsed > maxPageLimit {
+		return 0, errors.New("limit must be between 1 and 100")
+	}
+	return parsed, nil
+}
+
 // Options collects the router dependencies.
 type Options struct {
 	// Log is the structured logger.
@@ -40,6 +55,9 @@ type Options struct {
 	// Actions serves the mutating admin operations (CBL-12.2); when nil the
 	// business routes are not registered (12.1 mode).
 	Actions *usecase.AdminActions
+	// Discrepancies serves the reconciliation routes (CBL-12.3); when nil the
+	// routes are not registered.
+	Discrepancies DiscrepancyAPI
 	// Ping reports database readiness for /readyz.
 	Ping func(ctx context.Context) error
 }
@@ -74,6 +92,12 @@ func NewRouter(opts Options) *gin.Engine {
 		admin.GET("/routing-rules", httpmw.Require(domain.PermissionRoutingRead), actions.GetRoutingRules)
 		admin.PUT("/routing-rules", httpmw.Require(domain.PermissionRoutingManage), actions.PutRoutingRules)
 		admin.POST("/providers/:id/disable", httpmw.Require(domain.PermissionProvidersDisable), actions.DisableProvider)
+	}
+	if opts.Discrepancies != nil {
+		admin.GET("/reconciliation/discrepancies", httpmw.Require(domain.PermissionReconciliationRead),
+			discrepancyListHandler(opts.Discrepancies))
+		admin.POST("/reconciliation/discrepancies/:id/resolve", httpmw.Require(domain.PermissionReconciliationResolve),
+			discrepancyResolveHandler(opts.Discrepancies))
 	}
 
 	router.NoRoute(func(c *gin.Context) {
@@ -154,13 +178,9 @@ func parseAuditQuery(c *gin.Context) (domain.AuditFilter, int, string, error) {
 	filter.PeriodFrom = from
 	filter.PeriodTo = to
 
-	limit := 0
-	if raw := c.Query("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 || parsed > 100 {
-			return filter, 0, "", errors.New("limit must be between 1 and 100")
-		}
-		limit = parsed
+	limit, err := parseLimitValue(c.Query("limit"))
+	if err != nil {
+		return filter, 0, "", err
 	}
 	return filter, limit, c.Query("cursor"), nil
 }

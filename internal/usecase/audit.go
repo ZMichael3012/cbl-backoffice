@@ -3,13 +3,9 @@
 package usecase
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -122,19 +118,33 @@ func NewAuditWriter(store JournalWriter) *AuditWriter {
 // Record appends one journal entry: identifier, time and marshaled states are
 // filled here; a marshaling or storage failure is returned, never swallowed.
 func (w *AuditWriter) Record(ctx context.Context, entry AuditEntry) error {
+	record, err := w.Build(entry)
+	if err != nil {
+		return err
+	}
+	if err := w.store.Insert(ctx, record); err != nil {
+		return grpcmw.E(grpcmw.KindUnavailable, "service_unavailable",
+			"audit journal is temporarily unavailable", err)
+	}
+	return nil
+}
+
+// Build renders one journal entry without storing it; the discrepancy resolve
+// commits the record with the business change in one transaction (CBL-12.3).
+func (w *AuditWriter) Build(entry AuditEntry) (domain.AuditRecord, error) {
 	id, err := w.newID()
 	if err != nil {
-		return fmt.Errorf("audit record id: %w", err)
+		return domain.AuditRecord{}, fmt.Errorf("audit record id: %w", err)
 	}
 	before, err := marshalState(entry.Before)
 	if err != nil {
-		return fmt.Errorf("audit before state: %w", err)
+		return domain.AuditRecord{}, fmt.Errorf("audit before state: %w", err)
 	}
 	after, err := marshalState(entry.After)
 	if err != nil {
-		return fmt.Errorf("audit after state: %w", err)
+		return domain.AuditRecord{}, fmt.Errorf("audit after state: %w", err)
 	}
-	record := domain.AuditRecord{
+	return domain.AuditRecord{
 		ID:           id,
 		OccurredAt:   w.now().UTC(),
 		OperatorID:   entry.OperatorID,
@@ -144,12 +154,7 @@ func (w *AuditWriter) Record(ctx context.Context, entry AuditEntry) error {
 		RequestID:    entry.RequestID,
 		Before:       before,
 		After:        after,
-	}
-	if err := w.store.Insert(ctx, record); err != nil {
-		return grpcmw.E(grpcmw.KindUnavailable, "service_unavailable",
-			"audit journal is temporarily unavailable", err)
-	}
-	return nil
+	}, nil
 }
 
 // ExistsForResource reports whether the journal already contains a record for
@@ -175,69 +180,19 @@ func marshalState(state any) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// auditCursor is the wire form of the page position.
-type auditCursor struct {
-	// V is the cursor format version.
-	V int `json:"v"`
-	// T is the occurred_at of the last row, RFC 3339 in UTC.
-	T string `json:"t"`
-	// I is the id of the last row.
-	I string `json:"i"`
-	// F is the filter fingerprint the cursor is bound to.
-	F string `json:"f"`
-}
-
 // encodeAuditCursor builds the opaque cursor of the next page.
 func encodeAuditCursor(filter domain.AuditFilter, key domain.AuditKey) string {
-	payload, err := json.Marshal(auditCursor{
-		V: auditCursorVer,
-		T: key.OccurredAt.UTC().Format(time.RFC3339Nano),
-		I: key.ID,
-		F: filter.Fingerprint(),
-	})
-	if err != nil {
-		// The struct is plain JSON; an error is a programming defect.
-		return ""
-	}
-	return base64.RawURLEncoding.EncodeToString(payload)
+	return encodeKeysetCursor(auditCursorVer, filter.Fingerprint(), key.OccurredAt, key.ID)
 }
 
-// decodeAuditCursor parses and validates a cursor against the filter set;
-// an empty cursor is the first page.
+// decodeAuditCursor parses and validates a cursor against the filter set; an
+// empty cursor is the first page.
 func decodeAuditCursor(cursor string, filter domain.AuditFilter) (*domain.AuditKey, error) {
-	if cursor == "" {
-		return nil, nil
+	at, id, err := decodeKeysetCursor(cursor, filter.Fingerprint(), auditCursorVer, auditCursorMaxLen)
+	if err != nil || at == nil {
+		return nil, err
 	}
-	if len(cursor) > auditCursorMaxLen {
-		return nil, invalid("cursor is invalid")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return nil, invalid("cursor is invalid")
-	}
-	var parsed auditCursor
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&parsed); err != nil {
-		return nil, invalid("cursor is invalid")
-	}
-	// A cursor is a single JSON value: trailing bytes are rejected.
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, invalid("cursor is invalid")
-	}
-	if parsed.V != auditCursorVer || parsed.F != filter.Fingerprint() {
-		return nil, invalid("cursor is invalid")
-	}
-	id, err := uuid.Parse(parsed.I)
-	if err != nil {
-		// The position id must be a valid identifier before it reaches the store.
-		return nil, invalid("cursor is invalid")
-	}
-	occurredAt, err := time.Parse(time.RFC3339Nano, parsed.T)
-	if err != nil {
-		return nil, invalid("cursor is invalid")
-	}
-	return &domain.AuditKey{OccurredAt: occurredAt.UTC(), ID: id.String()}, nil
+	return &domain.AuditKey{OccurredAt: *at, ID: id}, nil
 }
 
 // invalid builds the uniform validation error (HTTP 400 validation_failed).

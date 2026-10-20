@@ -14,6 +14,7 @@ the test PayoutService (:9081) and ConnectorAdminService (:9082), backoffice in 
 | :-- | :-- | :-- |
 | `E2E_Backoffice_RBACAudit` | migrations, operator authN (missing/expired/wrong-secret tokens), RBAC (403 without `audit:read`, 200 for auditor/admin), problem+json with request_id, audit-log pagination and filters, append-only immutability against direct SQL | admin.v1.yaml 1.0.0 (`GET /admin/v1/audit-log`), PostgreSQL |
 | `E2E_Backoffice_AdminActions` | payout decisions through the stub PayoutService (two-operator approval, idempotent repeat, veto, `approval not required`, subject mismatch), routing get/put with the revision conflict, provider disable idempotence, the audit records of every action read through `/audit-log` | admin.v1.yaml 1.0.0, `PayoutService.ApprovePayout` (+`approved_by` cf-3.9), `ConnectorAdminService` (cf-3.7) |
+| `E2E_Backoffice_Reconciliation` | discrepancy listing RBAC (auditor/recon_operator list, payout_operator 403), severity/merchant filters, keyset cursor and its filter binding, manual resolution (operator mismatch, invalid resolution, 404, 200, repeat 409), the atomic `discrepancy.resolve` audit record; rows are seeded with psql (the `recon.alerts` consumer is covered by unit/integration tests and the global GE-5 run) | admin.v1.yaml 1.0.0 (`GET /admin/v1/reconciliation/discrepancies`, `POST .../{id}/resolve`), PostgreSQL |
 
 Minimum for a task run: the scenario affected by the task (the full set - before release
 runs). The write path of business actions (10.5/12.2) grows the scenario when those routes
@@ -139,7 +140,45 @@ usually within seconds after postgres. On a timeout, record the last actual valu
    compensated on the retry); `?action=payout.approve` -> 3 records.
 7. Checks go to `admin-actions-checks.txt`; command outputs to `admin-actions.log`.
 
-## 7. Mandatory run artifacts
+## 7. E2E_Backoffice_Reconciliation
+
+1. Full order (sections 3-4) until `readyz` = 200 (the `app` profile; the stand has no
+   Kafka, the consumer logs the disabled warning - the API contour is what this
+   scenario verifies).
+2. Tokens: `op-recon` with `recon_operator`, `op-aud` with `auditor`, `op-pay` with
+   `payout_operator`, `op-adm` with `admin` (`.additionals/mint`, `-secret`).
+3. Seed three open discrepancies through psql (the test fixtures mirror the
+   `recon.alerts` payload; the consumer is integration- and globally tested):
+
+```
+INSERT INTO discrepancies (id, type, ref_id, merchant_id, severity, expected, actual, status, created_at) VALUES
+('018f0000-0000-7000-8000-000000000101', 'amount_mismatch', '018f0000-0000-7000-8000-000000000201', '0199d6c2-8e3f-7a1b-9c4d-2e5f6a7b8c9d', 'critical', '55.000000', '60.000000', 'open', '2026-10-15T10:00:00Z'),
+('018f0000-0000-7000-8000-000000000102', 'missing_in_ledger', '018f0000-0000-7000-8000-000000000202', '', 'warning', 'completed', '', 'open', '2026-10-15T10:01:00Z'),
+('018f0000-0000-7000-8000-000000000103', 'status_mismatch', '018f0000-0000-7000-8000-000000000203', '0199d6c2-8e3f-7a1b-9c4d-2e5f6a7b8c9d', 'info', 'confirmed', 'pending', 'open', '2026-10-15T10:02:00Z');
+```
+
+4. Listing and RBAC (`GET /admin/v1/reconciliation/discrepancies`):
+   - auditor -> 200, three items, newest first (`...0103`, `...0102`, `...0101`);
+   - recon_operator -> 200; payout_operator -> 403 `permission_denied`;
+   - `severity=critical` -> one item (`...0101`); `merchant_id=0199d6c2-...` -> two items;
+   - `limit=2` -> two items and a non-empty `next_cursor`; the second page -> one item;
+   - the cursor of the `limit=2` page with `severity=critical` -> 400
+     (`validation_failed`, the cursor is bound to its filter set);
+   - `limit=101` -> 400; `severity=fatal` -> 400.
+5. Resolution (`POST .../{id}/resolve`):
+   - auditor -> 403 (no `reconciliation:resolve`); payout_operator -> 403;
+   - the recon token with `operator_id` different from the subject -> 403
+     `operator_mismatch`;
+   - `resolution=revert` -> 400;
+   - resolve `...0101` with `{"operator_id":"op-recon","resolution":"confirm_gateway","comment":"gateway wins"}` -> 200
+     `status=resolved`; the repeat -> 409 `discrepancy_resolved`; an unknown id -> 404
+     `discrepancy_not_found`.
+6. Audit: `GET /admin/v1/audit-log?action=discrepancy.resolve` with `op-adm` -> one
+   record, `resource_id=018f0000-0000-7000-8000-000000000101`,
+   `before.status=open`, `after.status=resolved`, `after.resolution=confirm_gateway`.
+7. Checks go to `reconciliation-checks.txt`; command outputs to `reconciliation.log`.
+
+## 8. Mandatory run artifacts
 
 - `summary.md` (template `.additionals/summary.template.md`; PASS/FAIL verdict, steps,
   key values, artifact list, time);
@@ -153,14 +192,14 @@ usually within seconds after postgres. On a timeout, record the last actual valu
 - an aborted run keeps the artifacts collected so far and the note in `summary.md`
   naming the successor run.
 
-## 8. Auxiliary files (.additionals)
+## 9. Auxiliary files (.additionals)
 
 - `mint/` - the token minting utility (HS256, the shared dev secret);
 - `stubs/` - the test PayoutService and ConnectorAdminService (CBL-12.2);
 - `summary.template.md` - the `summary.md` template;
 - `inventory.md` - the list of auxiliary files and their purpose.
 
-## 9. Cleanup
+## 10. Cleanup
 
 `docker compose -p cbl-backoffice-e2e-<MARK> -f deploy/docker-compose.yml --profile app down -v`
 at the end; `.runs/` is not committed; a repeated run must start from a clean stand.

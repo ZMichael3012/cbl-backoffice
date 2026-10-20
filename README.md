@@ -20,10 +20,10 @@ make down
 ```
 
 E2E: the run is performed by an agent following `test/e2e/E2E.md` (the
-`E2E_Backoffice_RBACAudit` and `E2E_Backoffice_AdminActions` scenarios); artifacts go
+`E2E_Backoffice_RBACAudit`, `E2E_Backoffice_AdminActions` and `E2E_Backoffice_Reconciliation` scenarios); artifacts go
 to `test/e2e/.runs/<UTC mark>/`, auxiliary files to `test/e2e/.additionals/`.
 
-## Admin API (12.1, 12.2)
+## Admin API (12.1-12.3)
 
 `/admin/v1` is reached with an operator bearer token: an HS256 JWT (`ADMIN_JWT_SECRET`,
 at least 32 characters, `exp` required, algorithm pinned) whose `roles` claim drives the
@@ -33,12 +33,12 @@ RBAC matrix (`admin`, `payout_operator`, `routing_manager`, `recon_operator`,
 cursor, `limit` up to 100); `POST /payouts/{id}/approve|reject` (the PayoutService
 client; the body operator must match the token subject); `GET/PUT /routing-rules`
 (the ConnectorAdminService client; the revision-based optimistic concurrency returns
-409 on a stale revision) and `POST /providers/{id}/disable` (idempotent 204).
+409 on a stale revision), `POST /providers/{id}/disable` (idempotent 204), `GET /reconciliation/discrepancies` (severity/merchant filters, filter-bound keyset cursor) and `POST /reconciliation/discrepancies/{id}/resolve` (one-way open -> resolved, the audited operator decision).
 
 Every successful mutating action writes one `audit_log` record (who, what, before/after,
 whitelisted contract DTOs) after the external call (T-BO6: an audit failure answers
 503 and the retry heals); the table rejects UPDATE/DELETE/TRUNCATE at the database
-level. The discrepancies routes arrive with task 12.3; the operator UI is 12.4. The
+level. The `recon.alerts` inbox consumer stores the discrepancies (Kafka group `cbl-backoffice-recon`); the operator UI is 12.4. The
 dev stand mints tokens with
 `go run ./test/e2e/.additionals/mint -sub op-1 -roles auditor -secret dev-admin-jwt-secret-change-me-please`.
 
@@ -47,5 +47,5 @@ dev stand mints tokens with
 `PG_DSN` (required), `ADMIN_JWT_SECRET` (required, >= 32 characters),
 `PAYOUT_GRPC_ADDR` and `CONNECTOR_GRPC_ADDR` (required), `PAYOUT_TIMEOUT` (2s,
 1s - 10s), `CONNECTOR_TIMEOUT` (5s, 1s - 10s), `HTTP_ADDR` (:8020), `METRICS_ADDR`
-(:9220), `MIGRATIONS_DIR` (./migrations; /app/migrations in the image). Migrations
+(:9220), `MIGRATIONS_DIR` (./migrations; /app/migrations in the image), `KAFKA_BROKERS` (optional; empty disables the consumer) and `BACKOFFICE_RECON_GROUP` (default `cbl-backoffice-recon`). Migrations
 are applied at startup (goose, forward only).
