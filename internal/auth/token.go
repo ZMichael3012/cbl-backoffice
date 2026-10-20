@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/cbl/cbl-kit/grpcmw"
+	"github.com/ZMichael3012/cbl-kit/grpcmw"
 
 	"github.com/cbl/cbl-backoffice/internal/domain"
 )

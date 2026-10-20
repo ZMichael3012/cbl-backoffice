@@ -15,9 +15,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/cbl/cbl-kit/inbox"
-	"github.com/cbl/cbl-kit/inbox/kafkaconsumer"
-	"github.com/cbl/cbl-kit/outbox/kafkapub"
+	"github.com/ZMichael3012/cbl-kit/inbox"
+	"github.com/ZMichael3012/cbl-kit/inbox/kafkaconsumer"
+	"github.com/ZMichael3012/cbl-kit/outbox/kafkapub"
 
 	"github.com/cbl/cbl-backoffice/internal/auth"
 	"github.com/cbl/cbl-backoffice/internal/config"

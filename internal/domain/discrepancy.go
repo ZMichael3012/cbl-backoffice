@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	eventsv1 "github.com/cbl/cbl-protos/gen/go/billing/events/v1"
+	eventsv1 "github.com/ZMichael3012/cbl-protos/gen/go/billing/events/v1"
 )
 
 // Discrepancy contract values (admin.v1.yaml, CF-3).

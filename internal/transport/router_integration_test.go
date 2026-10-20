@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/cbl/cbl-kit/ginmw"
+	"github.com/ZMichael3012/cbl-kit/ginmw"
 
 	"github.com/cbl/cbl-backoffice/internal/auth"
 	"github.com/cbl/cbl-backoffice/internal/storage"

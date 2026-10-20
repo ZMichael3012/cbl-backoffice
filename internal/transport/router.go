@@ -15,8 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/cbl/cbl-kit/ginmw"
-	"github.com/cbl/cbl-kit/grpcmw"
+	"github.com/ZMichael3012/cbl-kit/ginmw"
+	"github.com/ZMichael3012/cbl-kit/grpcmw"
 
 	"github.com/cbl/cbl-backoffice/internal/domain"
 	"github.com/cbl/cbl-backoffice/internal/transport/httpmw"

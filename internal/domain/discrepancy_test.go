@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	eventsv1 "github.com/cbl/cbl-protos/gen/go/billing/events/v1"
+	eventsv1 "github.com/ZMichael3012/cbl-protos/gen/go/billing/events/v1"
 
 	"github.com/cbl/cbl-backoffice/internal/domain"
 )

@@ -9,9 +9,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/cbl/cbl-kit/grpcmw"
+	"github.com/ZMichael3012/cbl-kit/grpcmw"
 
-	payoutv1 "github.com/cbl/cbl-protos/gen/go/billing/payout/v1"
+	payoutv1 "github.com/ZMichael3012/cbl-protos/gen/go/billing/payout/v1"
 )
 
 func TestMapError(t *testing.T) {

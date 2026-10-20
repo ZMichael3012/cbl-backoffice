@@ -22,10 +22,10 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	"github.com/cbl/cbl-kit/grpcmw"
+	"github.com/ZMichael3012/cbl-kit/grpcmw"
 
-	connectorv1 "github.com/cbl/cbl-protos/gen/go/billing/connector/v1"
-	payoutv1 "github.com/cbl/cbl-protos/gen/go/billing/payout/v1"
+	connectorv1 "github.com/ZMichael3012/cbl-protos/gen/go/billing/connector/v1"
+	payoutv1 "github.com/ZMichael3012/cbl-protos/gen/go/billing/payout/v1"
 )
 
 // main starts both stub servers and stops them on SIGINT/SIGTERM.
